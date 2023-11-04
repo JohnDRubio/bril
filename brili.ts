@@ -410,6 +410,8 @@ function evalCall(instr: bril.Operation, state: State): Action {
  * otherwise, return "next" to indicate that we should proceed to the next
  * instruction or "end" to terminate the function.
  */
+
+// TODO: Add tracing JIT logic
 function evalInstr(instr: bril.Instruction, state: State): Action {
   state.icount += BigInt(1);
 
