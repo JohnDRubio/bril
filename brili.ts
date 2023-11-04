@@ -322,6 +322,20 @@ type State = {
 
   // For speculation: the state at the point where speculation began.
   specparent: State | null,
+
+  // maps a funcName to the number of times that func has been evaluated.
+  funcEval: Map<string, number>
+}
+
+/**
+ * Increments funcCalls each time func is called
+ */
+function incrementFuncEval(funcName: string, state: State) {
+  if (state.funcEval.has(funcName)) {
+    state.funcEval.set(funcName, <number>state.funcEval.get(funcName)+1);
+  } else {
+    state.funcEval.set(funcName, 1);    // If you've reached this point, the func is being eval'd for first time
+  }
 }
 
 /**
@@ -366,6 +380,7 @@ function evalCall(instr: bril.Operation, state: State): Action {
     lastlabel: null,
     curlabel: null,
     specparent: null,  // Speculation not allowed.
+    funcEval: state.funcEval,
   }
   let retVal = evalFunc(func, newState);
   state.icount = newState.icount;
@@ -413,6 +428,7 @@ function evalCall(instr: bril.Operation, state: State): Action {
 
 // TODO: Add tracing JIT logic
 function evalInstr(instr: bril.Instruction, state: State): Action {
+  console.log(JSON.stringify(instr));
   state.icount += BigInt(1);
 
   // Check that we have the right number of arguments.
@@ -778,7 +794,12 @@ function evalInstr(instr: bril.Instruction, state: State): Action {
 }
 
 function evalFunc(func: bril.Function, state: State): Value | null {
+  console.log("Executing function: "+func.name+"...")
+  incrementFuncEval(func.name, state);
+  console.log(func.name+" has been eval'd "+state.funcEval.get(func.name)+" times.")
   for (let i = 0; i < func.instrs.length; ++i) {
+    // TODO: Maintain list of all funcNames that have already been traced
+    //       If they have been traced, don't retrace
     let line = func.instrs[i];
     if ('op' in line) {
       // Run an instruction.
@@ -948,6 +969,7 @@ function evalProg(prog: bril.Program) {
     lastlabel: null,
     curlabel: null,
     specparent: null,
+    funcEval: new Map(),
   }
   evalFunc(main, state);
 

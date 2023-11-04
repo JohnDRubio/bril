@@ -1,0 +1,15 @@
+@main {
+    x: int = const 5;
+    b: bool = const false;
+    speculate;
+    x: int = const 12;
+    guard b .recover;
+    commit;
+    print x;        # bad idea to do side-effecting operations within a speculative state
+    ret;
+
+.recover:
+    y: int = const 42;
+    print y;
+    print x;        # x should be rolled back to 5
+}
