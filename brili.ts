@@ -319,23 +319,18 @@ type State = {
   // For SSA (phi-node) execution: keep track of recently-seen labels.j
   curlabel: string | null,
   lastlabel: string | null,
-
   // For speculation: the state at the point where speculation began.
   specparent: State | null,
 
-  // maps a funcName to the number of times that func has been evaluated.
-  funcEval: Map<string, number>
-}
+  // Maps a funcName to the number of times that func has been evaluated.
+  evalCount: Map<string, number>,
 
-/**
- * Increments funcCalls each time func is called
- */
-function incrementFuncEval(funcName: string, state: State) {
-  if (state.funcEval.has(funcName)) {
-    state.funcEval.set(funcName, <number>state.funcEval.get(funcName)+1);
-  } else {
-    state.funcEval.set(funcName, 1);    // If you've reached this point, the func is being eval'd for first time
-  }
+  // Flag indicating whether tracing mode has been enabled
+  tracing_en: boolean
+
+  // Record traced Bril insns here
+  tracedInsns: bril.Instruction[]
+
 }
 
 /**
@@ -380,7 +375,9 @@ function evalCall(instr: bril.Operation, state: State): Action {
     lastlabel: null,
     curlabel: null,
     specparent: null,  // Speculation not allowed.
-    funcEval: state.funcEval,
+    evalCount: state.evalCount,
+    tracing_en: false,
+    tracedInsns: state.tracedInsns
   }
   let retVal = evalFunc(func, newState);
   state.icount = newState.icount;
@@ -416,7 +413,48 @@ function evalCall(instr: bril.Operation, state: State): Action {
     }
     state.env.set(instr.dest, retVal);
   }
+
   return NEXT;
+}
+
+/**
+ * Tracing logic
+ * 
+ */
+
+function trace(instr: bril.Instruction, state: State): void {
+  if (instr.op === "jmp") {
+    return;
+  }
+  
+  // Replace branch with a guard
+  if (instr.op === "br") {
+    let exit_label = "exit_label";
+    if (getBool(instr, state.env, 0)) {     // condition is true
+      let br_cond: string = instr.args![0];
+      state.tracedInsns.push({
+        op: "guard",
+        args: [br_cond],
+        labels: [exit_label]
+      });
+    } else {    // condition is false
+      let not_cond = "not_cond";
+      state.tracedInsns.push({
+        op: "not",
+        type: "bool",
+        args: [instr.args![0]],
+        dest: not_cond
+      });
+      state.tracedInsns.push({
+        op: "guard",
+        args: [not_cond],
+        labels: [exit_label]
+      });
+    }
+  }
+
+  // Keep tracing
+  state.tracedInsns.push(instr);
 }
 
 /**
@@ -425,10 +463,11 @@ function evalCall(instr: bril.Operation, state: State): Action {
  * otherwise, return "next" to indicate that we should proceed to the next
  * instruction or "end" to terminate the function.
  */
-
-// TODO: Add tracing JIT logic
 function evalInstr(instr: bril.Instruction, state: State): Action {
-  console.log(JSON.stringify(instr));
+  // console.log(JSON.stringify(instr));
+  if (state.tracing_en) {
+    trace(instr, state);
+  }
   state.icount += BigInt(1);
 
   // Check that we have the right number of arguments.
@@ -794,11 +833,10 @@ function evalInstr(instr: bril.Instruction, state: State): Action {
 }
 
 function evalFunc(func: bril.Function, state: State): Value | null {
-  console.log("Executing function: "+func.name+"...")
-  incrementFuncEval(func.name, state);
-  console.log(func.name+" has been eval'd "+state.funcEval.get(func.name)+" times.")
+  // console.log("Executing function: "+func.name+"...")
+  state.evalCount.set(func.name, (state.evalCount.get(func.name) || 0) + 1)
+  // console.log(func.name+" has been eval'd "+state.evalCount.get(func.name)+" times.")
   for (let i = 0; i < func.instrs.length; ++i) {
-    // TODO: Maintain list of all funcNames that have already been traced
     //       If they have been traced, don't retrace
     let line = func.instrs[i];
     if ('op' in line) {
@@ -862,6 +900,8 @@ function evalFunc(func: bril.Function, state: State): Value | null {
         }
       }
     } else if ('label' in line) {
+
+
       // Update CFG tracking for SSA phi nodes.
       state.lastlabel = state.curlabel;
       state.curlabel = line.label;
@@ -969,13 +1009,26 @@ function evalProg(prog: bril.Program) {
     lastlabel: null,
     curlabel: null,
     specparent: null,
-    funcEval: new Map(),
+    evalCount: new Map(),
+    tracing_en: true,
+    tracedInsns: [{op: "speculate"}]
   }
   evalFunc(main, state);
+
+  if (state.tracing_en) {
+    state.tracedInsns.push({"op": "commit"})
+  }
+
+  console.log(JSON.stringify( {
+    trace: state.tracedInsns,
+    prog: prog
+  }))
+
 
   if (!heap.isEmpty()) {
     throw error(`Some memory locations have not been freed by end of execution.`);
   }
+
 
   if (profiling) {
     console.error(`total_dyn_inst: ${state.icount}`);
@@ -987,6 +1040,7 @@ async function main() {
   try {
     let prog = JSON.parse(await readStdin()) as bril.Program;
     evalProg(prog);
+    // console.log(prog)
   }
   catch(e) {
     if (e instanceof BriliError) {
