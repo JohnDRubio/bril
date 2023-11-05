@@ -376,7 +376,7 @@ function evalCall(instr: bril.Operation, state: State): Action {
     curlabel: null,
     specparent: null,  // Speculation not allowed.
     evalCount: state.evalCount,
-    tracing_en: false,
+    tracing_en: state.tracing_en,
     tracedInsns: state.tracedInsns
   }
   let retVal = evalFunc(func, newState);
@@ -429,13 +429,13 @@ function trace(instr: bril.Instruction, state: State): void {
   
   // Replace branch with a guard
   if (instr.op === "br") {
-    let exit_label = "exit_label";
+    let dummy_label = "dummy_label";
     if (getBool(instr, state.env, 0)) {     // condition is true
       let br_cond: string = instr.args![0];
       state.tracedInsns.push({
         op: "guard",
         args: [br_cond],
-        labels: [exit_label]
+        labels: [dummy_label]
       });
     } else {    // condition is false
       let not_cond = "not_cond";
@@ -448,7 +448,7 @@ function trace(instr: bril.Instruction, state: State): void {
       state.tracedInsns.push({
         op: "guard",
         args: [not_cond],
-        labels: [exit_label]
+        labels: [dummy_label]
       });
     }
   }
