@@ -451,10 +451,10 @@ function trace(instr: bril.Instruction, state: State): void {
         labels: [dummy_label]
       });
     }
+  } else {
+    // Keep tracing
+    state.tracedInsns.push(instr);
   }
-
-  // Keep tracing
-  state.tracedInsns.push(instr);
 }
 
 /**
