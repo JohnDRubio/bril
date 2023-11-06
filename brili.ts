@@ -999,6 +999,14 @@ function evalProg(prog: bril.Program) {
     args.splice(pidx, 1);
   }
 
+  // find tracing "-t" flag
+  let tracing = false;
+  let tidx = args.indexOf('-t');
+  if (tidx > -1) {
+    tracing = true;
+    args.splice(tidx, 1);
+  }
+
   // Remaining arguments are for the main function.k
   let expected = main.args || [];
   let newEnv = parseMainArguments(expected, args);
@@ -1012,20 +1020,18 @@ function evalProg(prog: bril.Program) {
     curlabel: null,
     specparent: null,
     evalCount: new Map(),
-    tracing_en: true,
+    tracing_en: tracing,
     tracedInsns: [{op: "speculate"}]
   }
   evalFunc(main, state);
 
   if (state.tracing_en) {
-    state.tracedInsns.push({"op": "commit"})
+    state.tracedInsns.push({"op": "commit"});
+    console.log(JSON.stringify( {
+      trace: state.tracedInsns,
+      prog: prog
+    }));
   }
-
-  console.log(JSON.stringify( {
-    trace: state.tracedInsns,
-    prog: prog
-  }))
-
 
   if (!heap.isEmpty()) {
     throw error(`Some memory locations have not been freed by end of execution.`);
