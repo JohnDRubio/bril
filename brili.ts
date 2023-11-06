@@ -435,7 +435,8 @@ function trace(instr: bril.Instruction, state: State): void {
       state.tracedInsns.push({
         op: "guard",
         args: [br_cond],
-        labels: [dummy_label]
+        // jump to the false label if cond is not true
+        labels: [getLabel(instr, 1)]
       });
     } else {    // condition is false
       let not_cond = "not_cond";
@@ -448,7 +449,8 @@ function trace(instr: bril.Instruction, state: State): void {
       state.tracedInsns.push({
         op: "guard",
         args: [not_cond],
-        labels: [dummy_label]
+        // if the original condition is not false, jump to true label
+        labels: [getLabel(instr, 0)]
       });
     }
   } else {
