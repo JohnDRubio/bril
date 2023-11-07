@@ -423,13 +423,17 @@ function evalCall(instr: bril.Operation, state: State): Action {
  */
 
 function trace(instr: bril.Instruction, state: State): void {
+  if (['call', 'ret'].includes(instr.op)) {
+    state.tracing_en = false;
+    return;
+  }
+
   if (instr.op === "jmp") {
     return;
   }
   
   // Replace branch with a guard
   if (instr.op === "br") {
-    let dummy_label = "dummy_label";
     if (getBool(instr, state.env, 0)) {     // condition is true
       let br_cond: string = instr.args![0];
       state.tracedInsns.push({
@@ -656,7 +660,12 @@ function evalInstr(instr: bril.Instruction, state: State): Action {
       if (Object.is(-0, val)) { return "-0.00000000000000000" };
       if (typeof val == "number") { return val.toFixed(17) } else {return val.toString()}}
     );
-    console.log(...values);
+
+    // if we are tracing, we don't want to print to stdout because we want to print and save the stitched program
+    if (!state.tracing_en && state.tracedInsns.length <= 1) {
+      console.log(...values);
+    }
+    
     return NEXT;
   }
 
@@ -1025,12 +1034,11 @@ function evalProg(prog: bril.Program) {
   }
   evalFunc(main, state);
 
-  if (state.tracing_en) {
+  if (state.tracedInsns.length > 1) {
     state.tracedInsns.push({"op": "commit"});
-    console.log(JSON.stringify( {
-      trace: state.tracedInsns,
-      prog: prog
-    }));
+    // stitch trace into the beginning of main
+    main.instrs = [...state.tracedInsns ,...main.instrs];
+    console.log(JSON.stringify(prog));
   }
 
   if (!heap.isEmpty()) {
