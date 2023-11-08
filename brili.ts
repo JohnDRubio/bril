@@ -662,7 +662,7 @@ function evalInstr(instr: bril.Instruction, state: State): Action {
     );
 
     // if we are tracing, we don't want to print to stdout because we want to print and save the stitched program
-    if (!state.tracing_en && state.tracedInsns.length <= 1) {
+    if (!state.tracing_en) {
       console.log(...values);
     }
     
