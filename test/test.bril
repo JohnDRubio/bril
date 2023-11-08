@@ -1,10 +1,11 @@
-@main {
-    x: int = const 5;
-    b: bool = const false;
-    speculate;
+@main(input: int) {
+    x: int = const 0;
+    x1: int = const 0;
+    x2: int = const 0;
+    b: bool = lt input x;
+    br b .fall_through .recover;
+    .fall_through:
     x: int = const 12;
-    guard b .recover;
-    commit;
     print x;        # bad idea to do side-effecting operations within a speculative state
     ret;
 

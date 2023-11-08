@@ -1,6 +1,5 @@
 import * as bril from './bril-ts/bril.ts';
 import {readStdin, unreachable} from './bril-ts/util.ts';
-
 /**
  * An interpreter error to print to the console.
  */
@@ -423,24 +422,38 @@ function evalCall(instr: bril.Operation, state: State): Action {
  */
 
 function trace(instr: bril.Instruction, state: State): void {
-  if (['call', 'ret'].includes(instr.op)) {
-    state.tracing_en = false;
-    return;
-  }
+  let bail_ops = ['call', 'ret', 'store', 'alloc', 'free', 'jmp', 'print'];
+  let bail_label = "bail_label";
 
-  if (instr.op === "jmp") {
-    return;
-  }
-  
-  // Replace branch with a guard
-  if (instr.op === "br") {
+  if (bail_ops.includes(instr.op)) {    // Exit trace code
+    state.tracing_en = false;
+    if (instr.op === "jmp") {
+      return;
+    }
+    // Store false in a variable
+    let false_var = "false_var";
+    state.tracedInsns.push({
+      op: "const",
+      dest: false_var,
+      value: false,
+      type: "bool"
+    });
+    // Let guard evaluate to false and jump out of traced code
+    state.tracedInsns.push({
+      op: "guard",
+      args: [false_var],
+      labels: [bail_label]
+    });
+  } else if (instr.op === "br") {   // Replace branch with a guard
     if (getBool(instr, state.env, 0)) {     // condition is true
       let br_cond: string = instr.args![0];
       state.tracedInsns.push({
         op: "guard",
         args: [br_cond],
         // jump to the false label if cond is not true
-        labels: [getLabel(instr, 1)]
+        // labels: [getLabel(instr, 1)]
+        // jump out of trace code if condition not true
+        labels: [bail_label]
       });
     } else {    // condition is false
       let not_cond = "not_cond";
@@ -454,9 +467,13 @@ function trace(instr: bril.Instruction, state: State): void {
         op: "guard",
         args: [not_cond],
         // if the original condition is not false, jump to true label
-        labels: [getLabel(instr, 0)]
+        // labels: [getLabel(instr, 0)]
+        // if original condition dynamically evaluates to false, 
+        // jump out of trace code when condition is condition is true
+        labels: [bail_label]
       });
     }
+    return;
   } else {
     // Keep tracing
     state.tracedInsns.push(instr);
@@ -991,6 +1008,47 @@ function parseMainArguments(expected: bril.Argument[], args: string[]) : Env {
   return newEnv;
 }
 
+// Basic trivial dead code elimination
+// Remove vars that are never used
+function tdce_opt1(insns: bril.Instruction[]): bril.Instruction[] {
+    let changed = true;
+    while (changed) {
+        changed = false;
+        const remove: bril.Instruction[] = [];
+        const used: string[] = [];
+        const defined: string[] = [];
+
+        for (const insn of insns) {
+          if ('dest' in insn) {
+            if (insn.dest) {
+                defined.push(insn.dest);
+            }
+          }
+          if ('args' in insn) {
+            if (insn.args) {
+                for (const varName of insn.args) {
+                    used.push(varName);
+                }
+            }
+          }
+        }
+
+        for (const insn of insns) {
+          if ('dest' in insn) {
+            if (insn.dest && !used.includes(insn.dest)) {
+                remove.push(insn);
+                changed = true;
+            }
+          }
+        }
+
+        insns = insns.filter((insn) => !remove.includes(insn));
+    }
+
+    return insns;
+}
+
+
 function evalProg(prog: bril.Program) {
   let heap = new Heap<Value>()
   let main = findFunc("main", prog.functions);
@@ -1036,15 +1094,19 @@ function evalProg(prog: bril.Program) {
 
   if (state.tracedInsns.length > 1) {
     state.tracedInsns.push({"op": "commit"});
+
+    // perform static optimization on trace before stitching back into program
+    state.tracedInsns = tdce_opt1(state.tracedInsns);
+
     // stitch trace into the beginning of main
-    main.instrs = [...state.tracedInsns ,...main.instrs];
-    console.log(JSON.stringify(prog));
+    main.instrs = [...state.tracedInsns, {label: "bail_label"}, ...main.instrs];
+
+    console.log(JSON.stringify(prog))
   }
 
   if (!heap.isEmpty()) {
     throw error(`Some memory locations have not been freed by end of execution.`);
   }
-
 
   if (profiling) {
     console.error(`total_dyn_inst: ${state.icount}`);
