@@ -422,14 +422,15 @@ function evalCall(instr: bril.Operation, state: State): Action {
  */
 
 function trace(instr: bril.Instruction, state: State): void {
-  let bail_ops = ['call', 'ret', 'store', 'alloc', 'free', 'jmp', 'print'];
+  let bail_ops = ['call', 'ret', 'store', 'alloc', 'free', 'print'];
   let bail_label = "bail_label";
+
+  if (instr.op === "jmp") {
+    return;
+  }
 
   if (bail_ops.includes(instr.op)) {    // Exit trace code
     state.tracing_en = false;
-    if (instr.op === "jmp") {
-      return;
-    }
     // Store false in a variable
     let false_var = "false_var";
     state.tracedInsns.push({
