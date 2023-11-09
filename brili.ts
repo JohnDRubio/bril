@@ -386,12 +386,15 @@ function stitch(func: bril.Function, state: State) {
   // already straight line code, no need to trace
   if (g == state.tracedInsns.length) return;
 
-  state.tracedInsns.splice(g, 0, {"op": "speculate"});
-  
+  state.tracedInsns.splice(g, 0, { "op": "speculate" });
+
   // add commit
   if (i < func.instrs.length) {
     let last = state.tracedInsns[state.tracedInsns.length - 1];
-    if (last.hasOwnProperty("op") && ["ret", "jmp", "print", "store", "alloc", "load"].includes(last.op)) {
+    if (
+      last.hasOwnProperty("op") &&
+      ["ret", "jmp", "print", "store", "alloc", "load"].includes(last.op)
+    ) {
       // bailed out instr needs to go before commit
       state.tracedInsns.splice(state.tracedInsns.length - 1, 0, {
         "op": "commit",
@@ -525,7 +528,6 @@ function trace(instr: bril.Instruction, state: State): void {
 
   // Replace branch with a guard
   if (instr.op === "br") {
-
     if (getBool(instr, state.env, 0)) { // condition is true
       let br_cond: string = instr.args![0];
       state.tracedInsns.push({
