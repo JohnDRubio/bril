@@ -464,13 +464,13 @@ function trace(instr: bril.Instruction, state: State): void {
         args: [instr.args![0]],
         dest: not_cond
       });
+      // while tracing, if condition dynamically evaluates to false, 
+      // structure guard to only bail on executions where conition is true
       state.tracedInsns.push({
         op: "guard",
         args: [not_cond],
         // if the original condition is not false, jump to true label
         // labels: [getLabel(instr, 0)]
-        // if original condition dynamically evaluates to false, 
-        // jump out of trace code when condition is condition is true
         labels: [bail_label]
       });
     }
