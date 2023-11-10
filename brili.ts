@@ -350,62 +350,56 @@ type State = {
   tracingEnabled: boolean;
 
   // Record traced Bril insns here
-  tracedInsns: bril.Instruction[];
+  tracedInsns: (bril.Instruction | bril.Label)[];
 
   // should we trace the current function? Set to false if we have bailed out
   traceCurrFunction: boolean;
 };
 
 function stitch(func: bril.Function, state: State) {
-  if (state.tracedInsns.length == 0) {
+  if (
+    func.tracedInstrs && func.tracedInstrs.length > 0 ||
+    state.tracedInsns.length == 0
+  ) {
     return;
   }
-  let i = 0;
 
-  // get rid of code before the first label because it will get executed anyway
-  for (; i < func.instrs.length; i++) {
-    if (
-      typeof func.instrs[i] === "object" &&
-      func.instrs[i].hasOwnProperty("label")
-    ) {
-      break;
-    }
-  }
-
-  // find the first guard, if any
-  let g = 0;
-  for (; g < state.tracedInsns.length; g++) {
-    if (
-      state.tracedInsns[g].hasOwnProperty("op") &&
-      state.tracedInsns[g].op == "guard"
-    ) {
-      break;
-    }
-  }
-
-  // already straight line code, no need to trace
-  if (g == state.tracedInsns.length) return;
-
-  state.tracedInsns.splice(g, 0, { "op": "speculate" });
-
-  // add commit
-  if (i < func.instrs.length) {
-    let last = state.tracedInsns[state.tracedInsns.length - 1];
-    if (
-      last.hasOwnProperty("op") &&
-      ["ret", "jmp", "print", "store", "alloc", "load"].includes(last.op)
-    ) {
-      // bailed out instr needs to go before commit
-      state.tracedInsns.splice(state.tracedInsns.length - 1, 0, {
-        "op": "commit",
-      });
-    } else {
-      state.tracedInsns.push({ "op": "commit" });
-    }
-    func.instrs.splice(0, i, ...state.tracedInsns);
+  func.tracedInstrs = [...func.instrs];
+  let bailLabel = "bailLabel";
+  if (
+    typeof func.instrs[0] === "object" &&
+    func.instrs[0].hasOwnProperty("label")
+  ) {
+    bailLabel = func.instrs[0].label;
   } else {
-    func.instrs = state.tracedInsns;
+    func.tracedInstrs.splice(0, 0, { label: bailLabel });
   }
+
+  state.tracedInsns.splice(0, 0, { "op": "speculate" });
+
+  // replace with bail label
+  for (let ins = 0; ins < state.tracedInsns.length; ins++) {
+    if (
+      state.tracedInsns[ins].hasOwnProperty("op") &&
+      state.tracedInsns[ins].op == "guard"
+    ) {
+      state.tracedInsns[ins].labels = [bailLabel];
+    }
+  }
+  // add commit
+  let last = state.tracedInsns[state.tracedInsns.length - 1];
+  if (
+    last.hasOwnProperty("op") &&
+    ["ret", "jmp", "print", "store", "alloc", "load"].includes(last.op)
+  ) {
+    // bailed out instr needs to go after commit
+    state.tracedInsns.splice(state.tracedInsns.length - 1, 0, {
+      "op": "commit",
+    });
+  } else {
+    state.tracedInsns.push({ "op": "commit" });
+  }
+  func.tracedInstrs.splice(0, 0, ...state.tracedInsns);
 }
 
 /**
@@ -510,15 +504,48 @@ function evalCall(instr: bril.Operation, state: State): Action {
  * Tracing logic
  */
 
-function trace(instr: bril.Instruction, state: State): void {
-  // TODO deal with print
+function trace(func: bril.Function, i: number, state: State): void {
+  let instr = func.instrs[i];
 
-  if (["call"].includes(instr.op)) {
+  // oops, we need to bail! We'll try to find the label of the current block, 
+  // and try to jump to that after committing our current progress 
+  if (["call", "print", "store", "load", "alloc"].includes(instr.op)) {
+    i--; // current instr doesn't count
+
+    // go backwards in the instrs in the current block until we find a label
+    while (
+      i > 0 && (typeof func.instrs[i] !== "object" ||
+        !func.instrs[i].hasOwnProperty("label"))
+    ) {
+      // discard traced instrs belonging to the current block 
+      state.tracedInsns.pop();
+      i--;
+    }
+
+    if (i > 0 && state.tracedInsns.length > 0) {
+      let last = state.tracedInsns[state.tracedInsns.length - 1];
+
+      // we can also throw away the last guard since we are jumping anyway
+      if (
+        last.hasOwnProperty("op") && last.op == "guard"
+      ) {
+        state.tracedInsns.pop();
+      }
+
+      // jump to the original block
+      state.tracedInsns.push({ op: "jmp", labels: [func.instrs[i].label] });
+    } else {
+      // cannot find any last label to jump to, abort the whole trace
+      state.tracedInsns = [];
+    }
+    
+    // we have already bailed, stop tracing
     state.traceCurrFunction = false;
     return;
   }
 
   if (instr.op === "jmp") {
+    // if we have already traced a lot of instrs, we can conveniently commit before jumping
     if (state.tracedInsns.length > 150) {
       state.traceCurrFunction = false;
       state.tracedInsns.push(instr);
@@ -564,10 +591,6 @@ function trace(instr: bril.Instruction, state: State): void {
  * instruction or "end" to terminate the function.
  */
 function evalInstr(instr: bril.Instruction, state: State): Action {
-  if (state.traceCurrFunction) {
-    trace(instr, state);
-  }
-
   state.icount += BigInt(1);
 
   // Check that we have the right number of arguments.
@@ -958,6 +981,9 @@ function evalFunc(func: bril.Function, state: State): Value | null {
     if ("op" in line) {
       // Run an instruction.
       let action = evalInstr(line, state);
+      if (state.traceCurrFunction) {
+        trace(func, i, state);
+      }
 
       // Take the prescribed action.
       switch (action.action) {
@@ -1142,6 +1168,14 @@ function evalProg(prog: bril.Program) {
   stitch(main, state);
 
   if (state.tracingEnabled) {
+    for (let f = 0; f < prog.functions.length; f++) {
+      if (
+        prog.functions[f].tracedInstrs &&
+        prog.functions[f].tracedInstrs.length > 0
+      ) {
+        prog.functions[f].instrs = prog.functions[f].tracedInstrs;
+      }
+    }
     console.log(JSON.stringify(prog));
   }
 
