@@ -13,5 +13,3 @@ pipeline = [
     "brili -t {args}",
     "brili -p {args}",
 ]
-
-

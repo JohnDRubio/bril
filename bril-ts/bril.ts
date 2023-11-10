@@ -136,6 +136,7 @@ export interface Function {
   name: Ident;
   args?: Argument[];
   instrs: (Instruction | Label)[];
+  tracedInstrs?: (Instruction |Label)[];
   type?: Type;
   pos?: Position;
 }
