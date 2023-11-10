@@ -358,6 +358,7 @@ type State = {
 
 function stitch(func: bril.Function, state: State) {
   if (
+    // check if this function has already been traced and we have some instructions in the trace
     func.tracedInstrs && func.tracedInstrs.length > 0 ||
     state.tracedInsns.length == 0
   ) {
@@ -366,15 +367,19 @@ function stitch(func: bril.Function, state: State) {
 
   func.tracedInstrs = [...func.instrs];
   let bailLabel = "bailLabel";
+
+  // check if the function begins with a label, if so, use that. 
   if (
     typeof func.instrs[0] === "object" &&
     func.instrs[0].hasOwnProperty("label")
   ) {
     bailLabel = func.instrs[0].label;
   } else {
+    // otherwise, add baillabel to the beginning of the code
     func.tracedInstrs.splice(0, 0, { label: bailLabel });
   }
 
+  // add spec to beginning of trace
   state.tracedInsns.splice(0, 0, { "op": "speculate" });
 
   // replace with bail label
@@ -386,19 +391,22 @@ function stitch(func: bril.Function, state: State) {
       state.tracedInsns[ins].labels = [bailLabel];
     }
   }
+
   // add commit
   let last = state.tracedInsns[state.tracedInsns.length - 1];
   if (
-    last.hasOwnProperty("op") &&
-    ["ret", "jmp", "print", "store", "alloc", "load"].includes(last.op)
+    last.hasOwnProperty("op") && ["ret", "jmp", "print", "store", "alloc", "load"].includes(last.op)
   ) {
     // bailed out instr needs to go after commit
     state.tracedInsns.splice(state.tracedInsns.length - 1, 0, {
       "op": "commit",
     });
   } else {
+    // just add commit at the end of trace otherwise
     state.tracedInsns.push({ "op": "commit" });
   }
+
+  // prepend the trace to function
   func.tracedInstrs.splice(0, 0, ...state.tracedInsns);
 }
 
@@ -560,7 +568,7 @@ function trace(func: bril.Function, i: number, state: State): void {
       state.tracedInsns.push({
         op: "guard",
         args: [br_cond],
-        // jump to the false label if cond is not true
+        // dummy label 
         labels: [getLabel(instr, 1)],
       });
     } else { // condition is false
@@ -574,7 +582,7 @@ function trace(func: bril.Function, i: number, state: State): void {
       state.tracedInsns.push({
         op: "guard",
         args: [not_cond],
-        // if the original condition is not false, jump to true label
+        // dummy label
         labels: [getLabel(instr, 0)],
       });
     }
