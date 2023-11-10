@@ -365,6 +365,20 @@ function stitch(func: bril.Function, state: State) {
     return;
   }
 
+  let ins = 0
+  // replace with bail label
+  for (; ins < state.tracedInsns.length; ins++) {
+    if (
+
+      state.tracedInsns[ins].hasOwnProperty("op") &&
+      state.tracedInsns[ins].op == "guard"
+    ) {
+      break;
+    }
+  }
+  // already straight line code, no need to trace
+  if (ins == state.tracedInsns.length) return;
+
   func.tracedInstrs = [...func.instrs];
   let bailLabel = "bailLabel";
 
