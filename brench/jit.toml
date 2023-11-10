@@ -14,4 +14,13 @@ pipeline = [
     "brili -p {args}",
 ]
 
+[runs.tracedAndLVN]
+pipeline = [
+    "bril2json",
+    "brili -t {args}",
+    "python3 ../examples/lvn.py",
+    "python3 ../examples/tdce.py",
+    "brili -p {args}",
+]
+
 
